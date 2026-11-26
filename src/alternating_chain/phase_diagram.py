@@ -69,8 +69,8 @@ def optimize_n4_at_h(h: float, n_random: int = 24, seed: int = 42) -> tuple[floa
         r = rng.dirichlet([1.0, 1.0, 1.0, 1.0]) * rem
         candidates.append([h + r[0], h + r[1], h + r[2]])
 
-    best_e = float("inf")
     best_gaps = [h, h, 2.0 - h, 2.0 - h]
+    best_e = energy_per_particle([0.0, 2.0 - h, 2.0, 2.0 + h])
     cons = ({"type": "ineq", "fun": lambda d: 4.0 - float(np.sum(d)) - h},)
     bnds = [(h, 4.0 - 3.0 * h)] * 3
 
@@ -86,10 +86,15 @@ def optimize_n4_at_h(h: float, n_random: int = 24, seed: int = 42) -> tuple[floa
             constraints=cons,
             options={"ftol": 1e-13, "maxiter": 300},
         )
-        if res.fun < best_e:
-            best_e = float(res.fun)
-            d = res.x
-            best_gaps = [float(d[0]), float(d[1]), float(d[2]), float(4.0 - np.sum(d))]
+        d = [float(res.x[0]), float(res.x[1]), float(res.x[2])]
+        gaps = d + [float(4.0 - sum(d))]
+        # Reject infeasible SLSQP endpoints (all gaps must be >= h)
+        if min(gaps) < h - 1e-9:
+            continue
+        e = energy_per_particle([0.0, d[0], d[0] + d[1], d[0] + d[1] + d[2]])
+        if e < best_e:
+            best_e = e
+            best_gaps = gaps
 
     return best_e, best_gaps
 

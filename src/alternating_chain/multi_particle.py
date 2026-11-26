@@ -28,6 +28,23 @@ def _gaps_to_positions(gaps: Sequence[float]) -> list[float]:
     return pts
 
 
+def _gaps_from_x(d: Sequence[float], n: int) -> list[float]:
+    """Close the gap vector so that the gaps sum exactly to n."""
+    g = [float(x) for x in d]
+    g.append(float(n - sum(g)))
+    return g
+
+
+def _is_feasible(gaps: Sequence[float], n: int, h: float, tol: float = 1e-8) -> bool:
+    """A gap vector is admissible iff every gap is >= h and the gaps sum to n."""
+    return bool(min(gaps) >= h - tol) and abs(sum(gaps) - n) <= 1e-6
+
+
+def _feasible_fallback(n: int, h: float) -> list[float]:
+    """Constructively feasible configuration: one large gap, all others at h."""
+    return [h] * (n - 1) + [float(n) - (n - 1) * h]
+
+
 def compare_cluster_ansatz(n: int, h: float) -> Dict[str, float]:
     """Evaluate canonical cluster ansatz energies for even N and spacing h."""
     if n % 2 != 0 or n < 4:
@@ -74,8 +91,10 @@ def optimize_chain(n: int, h: float, n_starts: int = 30, seed: int = 42) -> tupl
         if min(g_odd) >= h - 1e-12:
             inits.append(g_odd[:-1])
 
-    best_e = float("inf")
-    best_gaps = [1.0] * n
+    # Start from a constructively feasible configuration so the result is never infeasible
+    best_gaps = _feasible_fallback(n, h)
+    best_e = energy_per_particle(_gaps_to_positions(best_gaps))
+
     cons = ({"type": "ineq", "fun": lambda d: float(n) - float(np.sum(d)) - h},)
     bnds = [(h, float(n) - (n - 1) * h)] * (n - 1)
 
@@ -94,9 +113,14 @@ def optimize_chain(n: int, h: float, n_starts: int = 30, seed: int = 42) -> tupl
             constraints=cons,
             options={"ftol": 1e-12, "maxiter": 300},
         )
-        if res.fun < best_e:
-            best_e = float(res.fun)
-            best_gaps = [float(x) for x in res.x] + [float(n - np.sum(res.x))]
+        gaps = _gaps_from_x(res.x, n)
+        # SLSQP can return an infeasible point; discard it and keep searching
+        if not _is_feasible(gaps, n, h):
+            continue
+        e = energy_per_particle(_gaps_to_positions(gaps))
+        if e < best_e:
+            best_e = e
+            best_gaps = gaps
 
     return best_e, best_gaps
 
