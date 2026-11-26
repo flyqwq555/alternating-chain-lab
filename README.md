@@ -1,5 +1,7 @@
 # alternating-chain-lab
 
+[![tests](https://github.com/flyqwq555/alternating-chain-lab/actions/workflows/test.yml/badge.svg)](https://github.com/flyqwq555/alternating-chain-lab/actions/workflows/test.yml)
+
 交替高斯粒子链（Alternating Gaussian Particle Chains）的**全区间相图、多粒子推广与高精度符号/区间算术验证库**。
 
 ## 背景与问题
