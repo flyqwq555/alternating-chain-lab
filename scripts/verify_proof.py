@@ -24,11 +24,15 @@ W = mp.pi / 2     # x -> theta scaling factor
 def _series_bound(k: int) -> tuple[mp.mpf, mp.mpf]:
     """Return (partial, upper bound) for sum_{n>=1} n^k q^{n^2}.
 
-    Tail: for n > N, n^2 >= (N+1) n, hence q^{n^2} <= q^{(N+1)n}; the tail is
-    majorised by a convergent geometric-type series. This is a genuine bound.
+    Tail: for n=N+1+j, n^2 >= (N+1)n and n <= (N+1)2^j, hence
+    n^k q^{n^2} <= (N+1)^k 2^{kj} q^{(N+1)^2} (q^{N+1})^j.  Summing the
+    geometric series gives a finite, rigorous majorant.
     """
     part = mp.fsum([q ** (n * n) * n ** k for n in range(1, N_TRUNC + 1)])
-    tail = mp.fsum([n ** k * q ** ((N_TRUNC + 1) * n) for n in range(N_TRUNC + 1, N_TRUNC + 200)])
+    base = q ** ((N_TRUNC + 1) ** 2)
+    ratio = q ** (N_TRUNC + 1)
+    denominator = 1 - (2 ** k) * ratio
+    tail = (N_TRUNC + 1) ** k * base / denominator
     return part, part + tail
 
 
@@ -82,6 +86,9 @@ M3 = 19 * W ** 3 * SUP[3]     # |F'''| <= (1/2)(8+2+1+27) sup|G'''|
 def check_crossing():
     h_c = mp.findroot(F, mp.mpf("0.668"))
     assert F(h_c - mp.mpf("1e-14")) < 0 < F(h_c + mp.mpf("1e-14"))
+    bracket_left = mp.mpf("0.6680191154868614433")
+    bracket_right = mp.mpf("0.6680191154868614435")
+    assert F(bracket_left) < 0 < F(bracket_right)
 
     slope = Fp(h_c)
     assert slope > mp.mpf("0.09"), "crossing is not transversal enough"
@@ -136,6 +143,7 @@ def check_crossing():
     return {
         "h_c": h_c, "F_prime_at_h_c": slope, "h_star": h_star,
         "F_second_at_h_star": Fpp(h_star), "F_at_1": F(mp.mpf(1)),
+        "bracket_left": bracket_left, "bracket_right": bracket_right,
         "M2": M2, "M3": M3,
     }
 
@@ -189,8 +197,15 @@ def check_t_elimination():
     for _ in range(200):
         mid = (lo + hi) / 2
         lo, hi = (mid, hi) if positive(mid) else (lo, mid)
-    delta0 = lo
+    root_estimate = lo
+    delta0 = mp.mpf("0.0868")
+    assert positive(delta0), "fixed delta_0=0.0868 must have strict margin"
     assert delta0 > mp.mpf("1e-3"), "certified range must contain the h < 1/(500 pi) regime"
+
+    box_lower = c * q * (
+        mp.mpf(119) / 120 - mp.mpf(475) / 8 * delta0 ** 2
+    )
+    assert box_lower > 0
 
     # independent grid check of dE/du > 0 (no algebra reused)
     def dE_du(u, v, t):
@@ -218,8 +233,72 @@ def check_t_elimination():
 
     return {
         "Delta": Delta, "g2_pi": g2_pi, "sup_g4": SUP[4], "sup_g5": s5,
-        "b3": b3, "b4": b4, "delta0": delta0, "h0": 2 * delta0 / mp.pi,
+        "b3": b3, "b4": b4, "root_estimate": root_estimate,
+        "delta0": delta0, "h0": 2 * delta0 / mp.pi,
+        "box_Ett_lower": box_lower,
         "worst_dE_du": worst[0], "d2E_dt2": d2t,
+    }
+
+
+# ------------------------------------------------ 4. global small-h theorem
+
+def check_global_small_h():
+    """Constants and regression checks for Theorem 5 (0 < h <= 1/(2*pi))."""
+    delta_max = mp.mpf(1) / 4
+
+    T = _series_bound(2)[1] - q
+    U = _series_bound(4)[1] - q
+    assert T <= q / 120, "T bound failed"
+    assert U <= q / 24, "U bound failed"
+
+    # g''' is positive on (0, pi); check the analytic lower bound on a grid.
+    for i in range(1, 200):
+        theta = mp.pi * i / 200
+        lower = 2 * c * (q - U) * mp.sin(theta)
+        assert g(theta, 3) >= lower - mp.mpf("1e-40")
+
+    # Localization radius at delta=1/4 and the refined defect coefficient.
+    radius_upper = (1 + 3 * mp.pi / 5) * delta_max
+    assert radius_upper < mp.pi / 4
+    d_coeff = (mp.mpf(121) / 60) / (
+        mp.mpf(37) / 20 - mp.mpf(5) / 2 * delta_max ** 2
+    )
+    assert d_coeff <= mp.mpf(968) / 813
+    assert d_coeff < mp.mpf(6) / 5
+
+    # Trial-energy and final derivative constants.
+    trial_coeff = 2 * (q + T) / q
+    assert trial_coeff <= mp.mpf(121) / 60
+    final_margin = 2 * mp.cos(delta_max) - 1 - 3 * T / q
+    assert final_margin >= mp.mpf(39) / 40 - delta_max ** 2
+    assert final_margin > mp.mpf(73) / 80
+
+    # Regression: the old uniform E_tt >= 0.0749 claim is false at this box point.
+    delta = mp.mpf("0.0868")
+    box_corner = -(g(mp.pi + 4 * delta, 2)
+                   - g(mp.pi + 3 * delta, 2)
+                   - g(mp.pi + 5 * delta, 2)) / 2
+    corrected_lower = c * q * (
+        mp.mpf(119) / 120 - mp.mpf(475) / 8 * delta ** 2
+    )
+    assert box_corner < mp.mpf("0.0749")
+    assert corrected_lower > 0
+
+    # A legal configuration with D < 5*delta^2 but u=4*delta > 3*delta.
+    counter_delta = mp.mpf("0.001")
+    counter_s1 = (1 + mp.exp(-1j * counter_delta)
+                  - mp.exp(3j * counter_delta)
+                  + mp.exp(4j * counter_delta))
+    counter_D = 2 - abs(counter_s1)
+    assert counter_D < 5 * counter_delta ** 2
+
+    return {
+        "delta_max": delta_max, "h_max": 2 * delta_max / mp.pi,
+        "T_bound": T, "U_bound": U, "radius_upper": radius_upper,
+        "d_coeff": d_coeff, "trial_coeff": trial_coeff,
+        "final_margin": final_margin, "box_corner_Ett": box_corner,
+        "corrected_Ett_lower": corrected_lower,
+        "counterexample_D": counter_D,
     }
 
 
@@ -232,12 +311,16 @@ def run_all():
         "crossing": check_crossing(),
         "first_order": check_first_order(),
         "t_elimination": check_t_elimination(),
+        "global_small_h": check_global_small_h(),
     }
 
 
 def main() -> int:
     rep = run_all()
-    k, cr, fo, te = rep["kernel"], rep["crossing"], rep["first_order"], rep["t_elimination"]
+    k, cr, fo, te, gs = (
+        rep["kernel"], rep["crossing"], rep["first_order"],
+        rep["t_elimination"], rep["global_small_h"],
+    )
 
     print("=" * 68)
     print(" verification of docs/proof-n4-phase-transition.md")
@@ -258,9 +341,15 @@ def main() -> int:
     print(f" sup|g''''| <= {mp.nstr(te['sup_g4'], 10)}   sup|g^(5)| <= {mp.nstr(te['sup_g5'], 10)}")
     print(f" b3 = {mp.nstr(te['b3'], 10)}   b4 = {mp.nstr(te['b4'], 10)}")
     print(f" delta_0 = {mp.nstr(te['delta0'], 10)}  =>  h_0 = {mp.nstr(te['h0'], 10)}")
+    print(f" delta_0 root estimate = {mp.nstr(te['root_estimate'], 18)}")
+    print(f" corrected box E_tt lower = {mp.nstr(te['box_Ett_lower'], 10)}  (> 0)")
     print(f" 1/(500 pi) = {mp.nstr(1 / (500 * mp.pi), 10)}  (far inside the certified range)")
     print(f" min dE/du on grid = {mp.nstr(te['worst_dE_du'], 10)}  (> 0)")
     print(f" d2E/dt2 at (delta,delta,0) = {mp.nstr(te['d2E_dt2'], 10)}  (> 0)")
+    print(f" theorem 5 range h <= {mp.nstr(gs['h_max'], 12)}")
+    print(f" radius at delta=1/4 = {mp.nstr(gs['radius_upper'], 12)}  (< pi/4)")
+    print(f" refined D coefficient = {mp.nstr(gs['d_coeff'], 12)}  (< 6/5)")
+    print(f" final Et/sin(t) margin = {mp.nstr(gs['final_margin'], 12)}  (> 73/80)")
     print("\n ALL CHECKS PASSED")
     return 0
 

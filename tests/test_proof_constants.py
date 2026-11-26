@@ -22,6 +22,7 @@ def test_proof_constants_match_document() -> None:
     assert cr["F_prime_at_h_c"] > mp.mpf("0.09")
     assert abs(cr["h_star"] - mp.mpf("0.784532788955013")) < mp.mpf("1e-12")
     assert cr["F_second_at_h_star"] < 0
+    assert vp.F(cr["bracket_left"]) < 0 < vp.F(cr["bracket_right"])
 
     # theorem 4: first order, transition precedes instability
     assert abs(fo["h_instab"] - mp.mpf("0.66846732835982469912")) < mp.mpf("1e-20")
@@ -36,3 +37,23 @@ def test_proof_constants_match_document() -> None:
 
     # the documented h < 1/(500 pi) regime sits far inside the certified range
     assert te["h0"] > 50 / (500 * mp.pi)
+
+
+def test_global_small_h_constants() -> None:
+    gs = vp.check_global_small_h()
+
+    assert gs["delta_max"] == mp.mpf(1) / 4
+    assert gs["T_bound"] <= vp.q / 120
+    assert gs["U_bound"] <= vp.q / 24
+    assert gs["radius_upper"] < mp.pi / 4
+    assert gs["d_coeff"] < mp.mpf(6) / 5
+    assert gs["final_margin"] > mp.mpf(73) / 80
+    assert gs["counterexample_D"] < 5 * mp.mpf("0.001") ** 2
+
+
+def test_lemma7_counterexample() -> None:
+    gs = vp.check_global_small_h()
+
+    # The old uniform lower bound 0.0749 fails at this legal box point.
+    assert gs["box_corner_Ett"] < mp.mpf("0.0749")
+    assert gs["corrected_Ett_lower"] > 0
